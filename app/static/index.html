@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Search</title>
+    <style>
+        /* Reset default margins and paddings */
+        body, h1, h2, h3, p, ul {
+            margin: 0;
+            padding: 0;
+        }
+
+        /* Basic styling for search form */
+        .search-container {
+            margin-bottom: 20px;
+        }
+
+        #query {
+            margin-right: 10px;
+            padding: 8px;
+            width: 300px;
+        }
+
+        button {
+            padding: 8px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        /* Styling for search results */
+        .results-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .result-box {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            position: relative; /* Ensure relative positioning for absolute itemDetails */
+        }
+
+        .result-box:hover {
+            background-color: #e0e0e0;
+        }
+
+        /* Styling for item details */
+        .item-details {
+            position: absolute;
+            top: 100%; /* Position below the resultBox */
+            left: 0;
+            width: 100%;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            display: none; /* Initially hidden */
+            z-index: 100; /* Ensure it's above other content */
+        }
+
+        .item-info {
+            margin-bottom: 20px;
+        }
+
+        .recommendations {
+            border-top: 1px solid #ddd;
+            padding-top: 10px;
+        }
+
+        .recommendations h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        /* Styling for upload form */
+        .upload-container {
+            margin-bottom: 20px;
+        }
+
+        #uploadForm {
+            margin-bottom: 10px;
+        }
+
+        /* Styling for upload status and errors */
+        .upload-status {
+            margin-top: 10px;
+            font-size: 14px;
+        }
+
+        .error-message {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <div class="upload-container">
+        <form id="uploadForm" enctype="multipart/form-data">
+            <label for="fileUpload" style="font-size: 24px; font-weight: bold;">Upload CSV File:</label>
+            <input type="file" id="fileUpload" name="file" accept=".csv">
+            <button type="submit">Upload</button>
+        </form>
+        <div id="uploadStatus" class="upload-status"></div>
+    </div>
+
+    <div class="search-container">
+        <form id="searchForm">
+            <label for="query" style="font-size: 24px; font-weight: bold;">Search for data:</label>
+            <input type="text" id="query" name="query">
+            <button type="submit">Search</button>
+        </form>
+    </div>
+
+    <div id="results" class="results-container">
+        <!-- Search results will be dynamically inserted here -->
+    </div>
+
+    <!-- Item details container -->
+    <div id="itemDetails" class="item-details">
+        <div id="itemInfo" class="item-info">
+            <!-- Item info details will be dynamically inserted here -->
+        </div>
+        <div id="recommendations" class="recommendations">
+            <h3>Recommendations:</h3>
+            <!-- Recommendations will be dynamically inserted here -->
+        </div>
+    </div>
+
+    <script>
+        console.log('Script loaded');
+        document.addEventListener('DOMContentLoaded', () => {
+            const uploadForm = document.getElementById('uploadForm');
+            const uploadStatus = document.getElementById('uploadStatus');
+            const searchForm = document.getElementById('searchForm');
+            const resultsContainer = document.getElementById('results');
+            const itemDetailsContainer = document.getElementById('itemDetails');
+    
+            uploadForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const formData = new FormData(uploadForm);
+    
+                try {
+                    const response = await fetch('/upload/', {
+                        method: 'POST',
+                        body: formData
+                    });
+    
+                    if (!response.ok) {
+                        throw new Error(`Upload failed with status ${response.status}`);
+                    }
+    
+                    const data = await response.json();
+                    console.log('Upload Response:', data);
+    
+                    // Update upload status
+                    uploadStatus.innerHTML = `<p>Upload successful: ${data.detail}</p>`;
+                    uploadStatus.classList.remove('error-message');
+    
+                } catch (error) {
+                    console.error('Upload error:', error);
+                    uploadStatus.innerHTML = `<p class="error-message">Upload failed: ${error}</p>`;
+                }
+            });
+    
+            searchForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const query = document.getElementById('query').value.trim();
+    
+                try {
+                    const response = await fetch(`/search/?query=${query}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+    
+                    const data = await response.json();
+                    console.log('Search Results:', data);
+    
+                    // Clear previous results and containers
+                    resultsContainer.innerHTML = '';
+                    hideItemDetails(); // Hide item details container
+    
+                    if (data.results.length > 0) {
+                        data.results.forEach(result => {
+                            // Create a box for each result
+                            const resultBox = document.createElement('div');
+                            resultBox.classList.add('result-box');
+    
+                            // Display basic info (title and authors) in the box
+                            const title = document.createElement('h3');
+                            title.textContent = getItemProperty(result, ['title', 'Title', 'TITLE', 'Series_Title']) || 'Title not available';
+                            resultBox.appendChild(title);
+    
+                            if (result.authors) {
+                                const authors = document.createElement('p');
+                                authors.textContent = `Authors: ${result.authors}`;
+                                resultBox.appendChild(authors);
+                            }
+    
+                            // Add click event to toggle details and recommendations
+                            resultBox.addEventListener('click', async () => {
+                                try {
+                                    const itemDetails = await fetch(`/item/${result.id}`);
+                                    if (!itemDetails.ok) {
+                                        throw new Error(`HTTP error! Status: ${itemDetails.status}`);
+                                    }
+    
+                                    const itemData = await itemDetails.json();
+                                    console.log('Item Details:', itemData);
+    
+                                    // Toggle item details visibility
+                                    if (itemDetailsContainer.style.display === 'block') {
+                                        hideItemDetails();
+                                    } else {
+                                        displayItemDetails(itemData.item, resultBox);
+                                    }
+    
+                                    // Fetch and display recommendations
+                                    const recResponse = await fetch(`/recommendations/?id=${result.id}`);
+                                    if (!recResponse.ok) {
+                                        throw new Error(`HTTP error! Status: ${recResponse.status}`);
+                                    }
+    
+                                    const recData = await recResponse.json();
+                                    console.log('Recommendations:', recData);
+                                    displayRecommendations(recData.recommendations);
+    
+                                } catch (error) {
+                                    console.error('Error fetching item details or recommendations:', error);
+                                }
+                            });
+    
+                            resultsContainer.appendChild(resultBox);
+                        });
+                    } else {
+                        resultsContainer.innerHTML = '<p>No results found.</p>';
+                    }
+                } catch (error) {
+                    console.error('Error fetching search results:', error);
+                }
+            });
+    
+            // Function to display item details
+            function displayItemDetails(item, resultBox) {
+                const itemInfoContainer = document.getElementById('itemInfo');
+                itemInfoContainer.innerHTML = `
+                    <h2>${getItemProperty(item, ['title', 'Title', 'TITLE', 'Series_Title']) || 'Title not available'}</h2>
+                    ${item.authors ? `<p>Authors: ${item.authors}</p>` : ''}
+                    ${item.authors ? '' : item.director ? `<p>Director: ${item.director}</p>` : ''}
+                    <p>Description: ${getItemProperty(item, ['description', 'Description', 'DESCRIPTION', 'overview', 'Overview', 'plot', 'Plot']) || 'Description not available'}</p>
+                `;
+    
+                // Position itemDetailsContainer below the clicked resultBox
+                const rect = resultBox.getBoundingClientRect();
+                itemDetailsContainer.style.top = `${rect.bottom}px`;
+                itemDetailsContainer.style.left = `${rect.left}px`;
+    
+                // Show the item details container
+                itemDetailsContainer.style.display = 'block';
+            }
+    
+            // Function to hide item details
+            function hideItemDetails() {
+                itemDetailsContainer.style.display = 'none';
+            }
+    
+            // Function to display recommendations
+            function displayRecommendations(recommendations) {
+                const recommendationsContainer = document.getElementById('recommendations');
+                recommendationsContainer.innerHTML = '<h3>Recommendations:</h3>';
+    
+                if (recommendations.length > 0) {
+                    recommendations.forEach(rec => {
+                        const recItem = document.createElement('div');
+                        recItem.textContent = `${rec.title}${rec.authors ? ` by ${rec.authors}` : ''}`;
+                        recommendationsContainer.appendChild(recItem);
+                    });
+                } else {
+                    recommendationsContainer.innerHTML += '<p>No recommendations available.</p>';
+                }
+            }
+    
+            // Function to get item property with various key possibilities
+            function getItemProperty(item, keys) {
+                for (let key of keys) {
+                    if (item.hasOwnProperty(key)) {
+                        return item[key];
+                    }
+                }
+                return null;
+            }
+        });
+    </script>
